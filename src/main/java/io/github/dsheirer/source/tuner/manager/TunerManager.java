@@ -50,6 +50,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -673,8 +674,7 @@ public class TunerManager implements IDiscoveredTunerStatusListener
     {
         private static final int HOTPLUG_CONTINUE_EVENT_SUPPORT = 0;
         private HotplugCallbackHandle mHotplugCallbackHandle;
-        private Thread mEventProcessorThread;
-        private volatile boolean mRunning;
+        private ScheduledFuture<?> mEventProcessorFuture;
 
         /**
          * LibUsb hotplug event notification
@@ -789,13 +789,13 @@ public class TunerManager implements IDiscoveredTunerStatusListener
          */
         public void stop()
         {
-            stopEventProcessor();
-
             if(mHotplugCallbackHandle != null)
             {
                 LibUsb.hotplugDeregisterCallback(mLibUsbApplicationContext, mHotplugCallbackHandle);
                 mHotplugCallbackHandle = null;
             }
+
+            stopEventProcessor();
         }
 
         private boolean isHotplugSupported()
@@ -844,54 +844,34 @@ public class TunerManager implements IDiscoveredTunerStatusListener
 
         private void startEventProcessor()
         {
-            if(mRunning)
+            if(mEventProcessorFuture != null && !mEventProcessorFuture.isDone())
             {
                 return;
             }
 
-            mRunning = true;
-            mEventProcessorThread = new Thread(() ->
+            Runnable eventHandler = () ->
             {
-                while(mRunning)
-                {
-                    int result = LibUsb.handleEventsTimeout(mLibUsbApplicationContext, 250_000);
+                int result = LibUsb.handleEventsTimeout(mLibUsbApplicationContext, 250_000);
 
-                    if(result == LibUsb.ERROR_INTERRUPTED)
-                    {
-                        continue;
-                    }
-                    else if(result < 0 && mRunning)
-                    {
-                        mLog.warn("LibUsb hotplug event handler error: {}", LibUsb.errorName(result));
-                        break;
-                    }
+                if(result == LibUsb.ERROR_INTERRUPTED || result == LibUsb.SUCCESS)
+                {
+                    return;
                 }
-            }, "sdrtrunk-libusb-hotplug");
-            mEventProcessorThread.setDaemon(true);
-            mEventProcessorThread.start();
+                else if(result < 0)
+                {
+                    mLog.warn("LibUsb hotplug event handler error: {}", LibUsb.errorName(result));
+                }
+            };
+
+            mEventProcessorFuture = ThreadPool.SCHEDULED.scheduleAtFixedRate(eventHandler, 0, 250, TimeUnit.MILLISECONDS);
         }
 
         private void stopEventProcessor()
         {
-            mRunning = false;
-
-            if(mEventProcessorThread != null)
+            if(mEventProcessorFuture != null)
             {
-                try
-                {
-                    while(mEventProcessorThread.isAlive())
-                    {
-                        mEventProcessorThread.join();
-                    }
-                }
-                catch(InterruptedException ie)
-                {
-                    Thread.currentThread().interrupt();
-                }
-                finally
-                {
-                    mEventProcessorThread = null;
-                }
+                mEventProcessorFuture.cancel(true);
+                mEventProcessorFuture = null;
             }
         }
     }
