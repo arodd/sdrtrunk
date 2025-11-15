@@ -22,29 +22,31 @@ package io.github.dsheirer.source.tuner.bladerf;
 import com.sun.jna.Pointer;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
-import io.github.dsheirer.buffer.INativeBuffer;
-import io.github.dsheirer.sample.Listener;
+import io.github.dsheirer.buffer.INativeBufferFactory;
 import io.github.dsheirer.source.SourceException;
 import io.github.dsheirer.source.tuner.ITunerErrorListener;
-import io.github.dsheirer.source.tuner.TunerController;
 import io.github.dsheirer.source.tuner.TunerType;
 import io.github.dsheirer.source.tuner.bladerf.api.BladeRFLibrary;
+import io.github.dsheirer.source.tuner.bladerf.usb.BladeRFNiosAccess;
+import io.github.dsheirer.source.tuner.bladerf.usb.BladeRFCapabilities;
+import io.github.dsheirer.source.tuner.bladerf.usb.BladeRFUsbConstants;
+import io.github.dsheirer.source.tuner.bladerf.usb.BladeRFUsbDevice;
+import io.github.dsheirer.source.tuner.bladerf.usb.BladeRFUsbProtocol;
+import io.github.dsheirer.source.tuner.bladerf.usb.BladeRFVersion;
 import io.github.dsheirer.source.tuner.configuration.TunerConfiguration;
-import io.github.dsheirer.util.ThreadPool;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import io.github.dsheirer.source.tuner.usb.USBTunerController;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.usb4java.Device;
+import org.usb4java.DeviceHandle;
 
 /**
- * bladeRF tuner controller that leverages the libbladeRF synchronous streaming API.
+ * bladeRF tuner controller that leverages the libbladeRF control plane and shared USB streaming.
  */
-public class BladeRFTunerController extends TunerController
+public class BladeRFTunerController extends USBTunerController
 {
     private static final Logger mLog = LoggerFactory.getLogger(BladeRFTunerController.class);
 
@@ -73,15 +75,15 @@ public class BladeRFTunerController extends TunerController
     private final BladeRFLibrary mLibrary = BladeRFLibrary.INSTANCE;
     private final BladeRFNativeBufferFactory mNativeBufferFactory = new BladeRFNativeBufferFactory();
     private final int mBus;
-    private final String mPortAddress;
     private final int mDeviceAddress;
-    private final AtomicBoolean mStarted = new AtomicBoolean();
-    private final AtomicBoolean mStreaming = new AtomicBoolean();
+    private BladeRFUsbDevice mUsbDevice;
+    private BladeRFVersion mFirmwareVersion;
+    private BladeRFVersion mFpgaVersion;
+    private long mUsbCapabilities;
     private final List<Integer> mSupportedSampleRates = new ArrayList<>();
     private final List<Long> mSupportedBandwidths = new ArrayList<>();
     private final List<GainModeInfo> mSupportedGainModes = new ArrayList<>();
 
-    private volatile Future<?> mStreamingFuture;
     private Pointer mDevice;
     private int mActualSampleRate = DEFAULT_SAMPLE_RATE;
     private long mBandwidthMin = DEFAULT_SAMPLE_RATE;
@@ -110,14 +112,10 @@ public class BladeRFTunerController extends TunerController
      */
     public BladeRFTunerController(int bus, String portAddress, int deviceAddress, ITunerErrorListener tunerErrorListener)
     {
-        super(tunerErrorListener);
+        super(bus, portAddress, MINIMUM_TUNABLE_FREQUENCY_HZ, MAXIMUM_TUNABLE_FREQUENCY_HZ, DC_HALF_BANDWIDTH,
+                USABLE_BANDWIDTH_PERCENT, tunerErrorListener);
         mBus = bus;
-        mPortAddress = portAddress;
         mDeviceAddress = deviceAddress;
-        setMinimumFrequency(MINIMUM_TUNABLE_FREQUENCY_HZ);
-        setMaximumFrequency(MAXIMUM_TUNABLE_FREQUENCY_HZ);
-        setMiddleUnusableHalfBandwidth(DC_HALF_BANDWIDTH);
-        setUsableBandwidthPercentage(USABLE_BANDWIDTH_PERCENT);
         try
         {
             mFrequencyController.setSampleRate(mActualSampleRate);
@@ -130,30 +128,109 @@ public class BladeRFTunerController extends TunerController
     }
 
     @Override
-    public void start() throws SourceException
+    protected void preStart() throws SourceException
     {
-        if(mStarted.compareAndSet(false, true))
+        if(mDevice != null)
         {
-            PointerByReference deviceRef = new PointerByReference();
-            String deviceIdentifier = String.format("*:device=%d:%d", mBus, mDeviceAddress);
-            int status = mLibrary.bladerf_open(deviceRef, deviceIdentifier);
+            return;
+        }
 
-            if(status != 0)
-            {
-                mStarted.set(false);
-                throw new SourceException(errorMessage("open device", status));
-            }
+        PointerByReference deviceRef = new PointerByReference();
+        String deviceIdentifier = String.format("*:device=%d:%d", mBus, mDeviceAddress);
+        int status = mLibrary.bladerf_open(deviceRef, deviceIdentifier);
 
-            mDevice = deviceRef.getValue();
+        if(status != 0)
+        {
+            throw new SourceException(errorMessage("open device", status));
+        }
 
+        mDevice = deviceRef.getValue();
+
+        try
+        {
+            initializeDevice();
+        }
+        catch(SourceException se)
+        {
+            deviceStop();
+            throw se;
+        }
+    }
+
+    @Override
+    protected void deviceStart() throws SourceException
+    {
+        initializeUsbMetadata();
+    }
+
+    @Override
+    protected void deviceStop()
+    {
+        streamingCleanup();
+        mUsbDevice = null;
+        mFirmwareVersion = null;
+        mFpgaVersion = null;
+        mUsbCapabilities = 0;
+
+        if(mDevice != null)
+        {
             try
             {
-                initializeDevice();
+                mLibrary.bladerf_close(mDevice);
             }
-            catch(SourceException se)
+            catch(Exception e)
             {
-                stop();
-                throw se;
+                mLog.debug("bladeRF close failed", e);
+            }
+
+            mDevice = null;
+        }
+    }
+
+    @Override
+    protected INativeBufferFactory getNativeBufferFactory()
+    {
+        return mNativeBufferFactory;
+    }
+
+    @Override
+    protected int getTransferBufferSize()
+    {
+        return BUFFER_SIZE_SAMPLES * BYTES_PER_SAMPLE;
+    }
+
+    @Override
+    protected void prepareStreaming()
+    {
+        if(mDevice == null)
+        {
+            return;
+        }
+
+        try
+        {
+            checkStatus(mLibrary.bladerf_sync_config(mDevice, BladeRFLibrary.BLADERF_RX_X1,
+                    BladeRFLibrary.BLADERF_FORMAT_SC16_Q11, NUM_BUFFERS, BUFFER_SIZE_SAMPLES, NUM_TRANSFERS,
+                    STREAM_TIMEOUT_MS), "configure sync stream");
+            checkStatus(mLibrary.bladerf_enable_module(mDevice, getChannelConstant(), true),
+                    "enable rx module");
+        }
+        catch(SourceException se)
+        {
+            mLog.error("Unable to start bladeRF streaming", se);
+            setErrorMessage(se.getMessage());
+        }
+    }
+
+    @Override
+    protected void streamingCleanup()
+    {
+        if(mDevice != null)
+        {
+            int status = mLibrary.bladerf_enable_module(mDevice, getChannelConstant(), false);
+            if(status != 0)
+            {
+                mLog.debug("Unable to disable bladeRF module: {}", errorMessage("disable module", status));
             }
         }
     }
@@ -162,11 +239,19 @@ public class BladeRFTunerController extends TunerController
     {
         try
         {
-            String boardName = mLibrary.bladerf_get_board_name(mDevice);
-            if(boardName != null)
+            if(mUsbDevice != null)
             {
-                mBoardName = boardName;
-                mBiasTSupported = boardName.startsWith("bladerf2");
+                mBoardName = mUsbDevice.getBoardName();
+                mBiasTSupported = mBoardName.startsWith("bladerf2");
+            }
+            else
+            {
+                String boardName = mLibrary.bladerf_get_board_name(mDevice);
+                if(boardName != null)
+                {
+                    mBoardName = boardName;
+                    mBiasTSupported = boardName.startsWith("bladerf2");
+                }
             }
         }
         catch(UnsatisfiedLinkError | NoClassDefFoundError e)
@@ -188,29 +273,6 @@ public class BladeRFTunerController extends TunerController
         setGainMode(mConfiguredGainModeName, mConfiguredOverallGain);
         setTunedFrequency(mFrequency);
         setBiasTInternal(mConfiguredBiasTEnabled);
-    }
-
-    @Override
-    public void stop()
-    {
-        stopStreaming();
-
-        if(mDevice != null)
-        {
-            try
-            {
-                mLibrary.bladerf_enable_module(mDevice, getChannelConstant(), false);
-            }
-            catch(Exception e)
-            {
-                mLog.debug("bladeRF disable module during stop failed", e);
-            }
-
-            mLibrary.bladerf_close(mDevice);
-            mDevice = null;
-        }
-
-        mStarted.set(false);
     }
 
     @Override
@@ -269,6 +331,16 @@ public class BladeRFTunerController extends TunerController
 
     private void updateSerial()
     {
+        if(mUsbDevice != null)
+        {
+            String serial = mUsbDevice.getSerialNumber();
+            if(serial != null && !serial.isEmpty())
+            {
+                mSerial = serial;
+                return;
+            }
+        }
+
         if(mDevice != null)
         {
             byte[] serial = new byte[BladeRFLibrary.BLADERF_SERIAL_LENGTH];
@@ -285,6 +357,82 @@ public class BladeRFTunerController extends TunerController
         }
     }
 
+    private void initializeUsbMetadata()
+    {
+        Device device = getDevice();
+        DeviceHandle handle = getDeviceHandle();
+
+        if(device == null || handle == null)
+        {
+            return;
+        }
+
+        try
+        {
+            mUsbDevice = new BladeRFUsbDevice(device, handle);
+        }
+        catch(SourceException se)
+        {
+            mLog.debug("Unable to read bladeRF USB metadata", se);
+            mUsbDevice = null;
+        }
+
+        BladeRFUsbProtocol protocol = new BladeRFUsbProtocol(handle);
+        waitForFirmwareReady(protocol);
+
+        if(mUsbDevice != null)
+        {
+            String boardName = mUsbDevice.getBoardName();
+            if(boardName != null && !boardName.isEmpty())
+            {
+                mBoardName = boardName;
+                mBiasTSupported = boardName.startsWith("bladerf2");
+            }
+
+            String serial = mUsbDevice.getSerialNumber();
+            if(serial != null && !serial.isEmpty())
+            {
+                mSerial = serial;
+            }
+
+            BladeRFVersion firmwareVersion = mUsbDevice.getFirmwareVersion();
+            if(firmwareVersion != null)
+            {
+                mFirmwareVersion = firmwareVersion;
+                mLog.debug("bladeRF firmware version {}", firmwareVersion);
+            }
+        }
+
+        try
+        {
+            BladeRFNiosAccess niosAccess = new BladeRFNiosAccess(protocol);
+            mFpgaVersion = niosAccess.readFpgaVersion();
+            mLog.debug("bladeRF fpga version {}", mFpgaVersion);
+        }
+        catch(SourceException se)
+        {
+            mLog.debug("Unable to read bladeRF FPGA version", se);
+        }
+
+        mUsbCapabilities = BladeRFCapabilities.combined(mFirmwareVersion, mFpgaVersion);
+    }
+
+    private void waitForFirmwareReady(BladeRFUsbProtocol protocol)
+    {
+        try
+        {
+            int ready = protocol.readVendorInt(BladeRFUsbConstants.CMD_QUERY_DEVICE_READY, (short)0, (short)0);
+            if(ready == 0)
+            {
+                mLog.debug("bladeRF firmware not ready when queried");
+            }
+        }
+        catch(SourceException se)
+        {
+            mLog.debug("Unable to query bladeRF firmware readiness", se);
+        }
+    }
+
     public String getSerialNumber()
     {
         return mSerial;
@@ -293,6 +441,21 @@ public class BladeRFTunerController extends TunerController
     public String getBoardName()
     {
         return mBoardName;
+    }
+
+    public BladeRFVersion getFirmwareVersion()
+    {
+        return mFirmwareVersion;
+    }
+
+    public BladeRFVersion getFpgaVersion()
+    {
+        return mFpgaVersion;
+    }
+
+    public long getUsbCapabilities()
+    {
+        return mUsbCapabilities;
     }
 
     /**
@@ -376,7 +539,7 @@ public class BladeRFTunerController extends TunerController
 
         if(mDevice != null)
         {
-            wasStreaming = mStreaming.get();
+            wasStreaming = isStreamingActive();
             hadListeners = hasBufferListeners();
 
             if(wasStreaming)
@@ -867,139 +1030,6 @@ public class BladeRFTunerController extends TunerController
         {
             mFreeGainModesSupported = false;
             mLog.debug("Unable to free bladeRF gain modes pointer", t);
-        }
-    }
-
-    private void startStreaming() throws SourceException
-    {
-        if(mDevice == null)
-        {
-            throw new SourceException("bladeRF device is not initialized");
-        }
-
-        if(mStreaming.compareAndSet(false, true))
-        {
-            checkStatus(mLibrary.bladerf_sync_config(mDevice, BladeRFLibrary.BLADERF_RX_X1,
-                    BladeRFLibrary.BLADERF_FORMAT_SC16_Q11, NUM_BUFFERS, BUFFER_SIZE_SAMPLES, NUM_TRANSFERS,
-                    STREAM_TIMEOUT_MS), "configure sync stream");
-            checkStatus(mLibrary.bladerf_enable_module(mDevice, getChannelConstant(), true),
-                    "enable rx module");
-
-            mStreamingFuture = ThreadPool.CACHED.submit(this::readSamples);
-        }
-    }
-
-    private void stopStreaming()
-    {
-        Future<?> future = mStreamingFuture;
-
-        if(mStreaming.compareAndSet(true, false))
-        {
-            if(future != null)
-            {
-                future.cancel(true);
-            }
-        }
-        else if(future != null && !future.isDone())
-        {
-            future.cancel(true);
-        }
-
-        if(mDevice != null)
-        {
-            int status = mLibrary.bladerf_enable_module(mDevice, getChannelConstant(), false);
-            if(status != 0)
-            {
-                mLog.debug("Unable to disable bladeRF module: {}", errorMessage("disable module", status));
-            }
-        }
-    }
-
-    private void readSamples()
-    {
-        ByteBuffer buffer = ByteBuffer.allocateDirect(BUFFER_SIZE_SAMPLES * BYTES_PER_SAMPLE);
-        buffer.order(ByteOrder.LITTLE_ENDIAN);
-
-        while(mStreaming.get() && mDevice != null)
-        {
-            buffer.clear();
-            int status = mLibrary.bladerf_sync_rx(mDevice, buffer, BUFFER_SIZE_SAMPLES, Pointer.NULL, STREAM_TIMEOUT_MS);
-
-            if(status == 0)
-            {
-                buffer.limit(buffer.capacity());
-                buffer.position(0);
-                INativeBuffer nativeBuffer = mNativeBufferFactory.getBuffer(buffer, System.currentTimeMillis());
-                mNativeBufferBroadcaster.broadcast(nativeBuffer);
-            }
-            else if(status == BladeRFLibrary.BLADERF_ERR_TIMEOUT)
-            {
-                //Ignore and retry
-            }
-            else
-            {
-                String message = errorMessage("receive samples", status);
-                mLog.error("bladeRF streaming error - {}", message);
-                setErrorMessage(message);
-                mStreaming.set(false);
-            }
-        }
-
-        if(mDevice != null)
-        {
-            int status = mLibrary.bladerf_enable_module(mDevice, getChannelConstant(), false);
-            if(status != 0)
-            {
-                mLog.debug("Unable to disable bladeRF module after streaming: {}", errorMessage("disable module", status));
-            }
-        }
-
-        mStreamingFuture = null;
-    }
-
-    @Override
-    public void addBufferListener(Listener<INativeBuffer> listener)
-    {
-        getLock().lock();
-
-        try
-        {
-            boolean hasListeners = hasBufferListeners();
-            super.addBufferListener(listener);
-
-            if(!hasListeners)
-            {
-                startStreaming();
-            }
-        }
-        catch(SourceException se)
-        {
-            mLog.error("Unable to start bladeRF streaming", se);
-            setErrorMessage(se.getMessage());
-        }
-        finally
-        {
-            getLock().unlock();
-        }
-    }
-
-    @Override
-    public void removeBufferListener(Listener<INativeBuffer> listener)
-    {
-        getLock().lock();
-
-        try
-        {
-            super.removeBufferListener(listener);
-
-            if(!hasBufferListeners())
-            {
-                stopStreaming();
-            }
-        }
-        finally
-        {
-            getLock().unlock();
         }
     }
 
