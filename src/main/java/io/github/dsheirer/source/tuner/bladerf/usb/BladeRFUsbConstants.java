@@ -17,9 +17,20 @@ public final class BladeRFUsbConstants
     public static final byte PERIPHERAL_ENDPOINT_OUT = 0x02;
 
     public static final int CONTROL_TIMEOUT_MS = 1_000;
-    public static final int PERIPHERAL_TIMEOUT_MS = 250;
+    public static final int PERIPHERAL_TIMEOUT_MS = 1_000;
     public static final short DEFAULT_LANG_ID = (short)0x0409;
     public static final byte STRING_INDEX_FIRMWARE_VERSION = 4;
+
+    // Interface selectors
+    public static final int USB_INTERFACE = 0;
+    public static final int USB_IF_NULL = 0;
+    public static final int USB_IF_RF_LINK = 1;
+    public static final int USB_IF_SPI_FLASH = 2;
+    public static final int USB_IF_CONFIG = 3;
+
+    // Calibration cache metadata
+    public static final int CALIBRATION_CACHE_SIZE = 256;
+    public static final int CALIBRATION_TRANSFER_BYTES = 64;
 
     // Vendor command identifiers
     public static final byte CMD_QUERY_VERSION = 0;

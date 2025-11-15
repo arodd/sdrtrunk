@@ -18,6 +18,8 @@ public class BladeRFUsbDevice
 
     private final DeviceDescriptor mDescriptor = new DeviceDescriptor();
     private final DeviceHandle mHandle;
+    private static final int VENDOR_ID_NUAND = 0x2CF0;
+    private static final int[] BLADERF2_PRODUCT_IDS = {0x5250, 0x5251, 0x5252, 0x5253};
 
     private String mManufacturer;
     private String mProduct;
@@ -55,11 +57,43 @@ public class BladeRFUsbDevice
 
     public String getBoardName()
     {
-        if(mProduct != null && mProduct.toLowerCase().contains("bladerf2"))
+        if(isBladeRF2Descriptor() || containsBladeRF2Token())
         {
             return "bladerf2";
         }
+
         return "bladerf";
+    }
+
+    private boolean containsBladeRF2Token()
+    {
+        if(mProduct == null)
+        {
+            return false;
+        }
+
+        String normalized = mProduct.toLowerCase();
+        return normalized.contains("bladerf2") || normalized.contains("bladerf 2");
+    }
+
+    private boolean isBladeRF2Descriptor()
+    {
+        int vendor = mDescriptor.idVendor() & 0xFFFF;
+        if(vendor != VENDOR_ID_NUAND)
+        {
+            return false;
+        }
+
+        int product = mDescriptor.idProduct() & 0xFFFF;
+        for(int candidate: BLADERF2_PRODUCT_IDS)
+        {
+            if(candidate == product)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public BladeRFVersion getFirmwareVersion()
