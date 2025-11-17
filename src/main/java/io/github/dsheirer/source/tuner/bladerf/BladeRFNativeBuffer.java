@@ -22,6 +22,7 @@ package io.github.dsheirer.source.tuner.bladerf;
 import io.github.dsheirer.buffer.AbstractNativeBuffer;
 import io.github.dsheirer.sample.complex.ComplexSamples;
 import io.github.dsheirer.sample.complex.InterleavedComplexSamples;
+import java.nio.ShortBuffer;
 import java.util.Iterator;
 
 /**
@@ -31,18 +32,21 @@ class BladeRFNativeBuffer extends AbstractNativeBuffer
 {
     private static final int MAX_COMPLEX_FRAGMENT_SIZE = 2048;
     private static final float SAMPLE_SCALE = 1.0f / 2048.0f;
-    private final short[] mSamples;
+    private final ShortBuffer mSamples;
+    private final int mSampleLength;
 
-    BladeRFNativeBuffer(short[] samples, long timestamp, float samplesPerMillisecond)
+    BladeRFNativeBuffer(ShortBuffer samples, long timestamp, float samplesPerMillisecond)
     {
         super(timestamp, samplesPerMillisecond);
-        mSamples = samples;
+        mSamples = samples.asReadOnlyBuffer();
+        mSamples.rewind();
+        mSampleLength = mSamples.remaining();
     }
 
     @Override
     public int sampleCount()
     {
-        return mSamples.length / 2;
+        return mSampleLength / 2;
     }
 
     @Override
@@ -64,13 +68,13 @@ class BladeRFNativeBuffer extends AbstractNativeBuffer
         @Override
         public boolean hasNext()
         {
-            return mOffset < mSamples.length;
+            return mOffset < mSampleLength;
         }
 
         @Override
         public ComplexSamples next()
         {
-            int remainingShorts = mSamples.length - mOffset;
+            int remainingShorts = mSampleLength - mOffset;
             int complexSamples = Math.min(MAX_COMPLEX_FRAGMENT_SIZE, remainingShorts / 2);
             float[] i = new float[complexSamples];
             float[] q = new float[complexSamples];
@@ -78,8 +82,8 @@ class BladeRFNativeBuffer extends AbstractNativeBuffer
 
             for(int x = 0; x < complexSamples; x++)
             {
-                i[x] = mSamples[mOffset++] * SAMPLE_SCALE;
-                q[x] = mSamples[mOffset++] * SAMPLE_SCALE;
+                i[x] = mSamples.get(mOffset++) * SAMPLE_SCALE;
+                q[x] = mSamples.get(mOffset++) * SAMPLE_SCALE;
             }
 
             return new ComplexSamples(i, q, timestamp);
@@ -93,13 +97,13 @@ class BladeRFNativeBuffer extends AbstractNativeBuffer
         @Override
         public boolean hasNext()
         {
-            return mOffset < mSamples.length;
+            return mOffset < mSampleLength;
         }
 
         @Override
         public InterleavedComplexSamples next()
         {
-            int remainingShorts = mSamples.length - mOffset;
+            int remainingShorts = mSampleLength - mOffset;
             int complexSamples = Math.min(MAX_COMPLEX_FRAGMENT_SIZE, remainingShorts / 2);
             float[] converted = new float[complexSamples * 2];
             long timestamp = getFragmentTimestamp(mOffset);
@@ -107,8 +111,8 @@ class BladeRFNativeBuffer extends AbstractNativeBuffer
             int index = 0;
             for(int x = 0; x < complexSamples; x++)
             {
-                converted[index++] = mSamples[mOffset++] * SAMPLE_SCALE;
-                converted[index++] = mSamples[mOffset++] * SAMPLE_SCALE;
+                converted[index++] = mSamples.get(mOffset++) * SAMPLE_SCALE;
+                converted[index++] = mSamples.get(mOffset++) * SAMPLE_SCALE;
             }
 
             return new InterleavedComplexSamples(converted, timestamp);
