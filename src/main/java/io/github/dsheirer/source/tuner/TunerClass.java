@@ -122,11 +122,10 @@ public enum TunerClass
 			case 0x1D50CC15: //HACKRF ONE
 			case 0x1D50604B: //HACKRF JAWBREAKER
 				return HACKRF;
-			case 0x1D506062: //bladeRF x40/x115 (OpenMoko VID)
-			case 0x2CF05250: //bladeRF 2.0 Micro xA4
-			case 0x2CF05251: //bladeRF 2.0 Micro xA9
-			case 0x2CF05252: //bladeRF 2.0 Micro xA4-N
-			case 0x2CF05253: //bladeRF 2.0 Micro xA9-N
+                        case 0x2CF05250: //bladeRF 2.0 Micro xA4
+                        case 0x2CF05251: //bladeRF 2.0 Micro xA9
+                        case 0x2CF05252: //bladeRF 2.0 Micro xA4-N
+                        case 0x2CF05253: //bladeRF 2.0 Micro xA9-N
 				return BLADE_RF;
 			case 0x1D5060A1:
 				return AIRSPY;
