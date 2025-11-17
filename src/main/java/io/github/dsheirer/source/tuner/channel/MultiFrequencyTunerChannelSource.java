@@ -23,6 +23,7 @@ import com.google.common.eventbus.Subscribe;
 import io.github.dsheirer.sample.Listener;
 import io.github.dsheirer.sample.complex.ComplexSamples;
 import io.github.dsheirer.source.Source;
+import io.github.dsheirer.source.SourceWrapper;
 import io.github.dsheirer.source.SourceEvent;
 import io.github.dsheirer.source.SourceException;
 import io.github.dsheirer.source.heartbeat.Heartbeat;
@@ -41,7 +42,7 @@ import org.slf4j.LoggerFactory;
  * source events requests to change frequency.  Maintains an ordered list of frequencies and automatically tears down
  * an existing tuner channel source and obtains a new one with the next frequency from the list, on request.
  */
-public class MultiFrequencyTunerChannelSource extends TunerChannelSource
+public class MultiFrequencyTunerChannelSource extends TunerChannelSource implements SourceWrapper
 {
     private final static Logger mLog = LoggerFactory.getLogger(MultiFrequencyTunerChannelSource.class);
 
@@ -161,6 +162,27 @@ public class MultiFrequencyTunerChannelSource extends TunerChannelSource
             mTunerChannelSource.removeSourceEventListener();
             mTunerChannelSource = null;
         }
+    }
+
+    @Override
+    public boolean wrapsSource(Source source)
+    {
+        if(source == null || mTunerChannelSource == null)
+        {
+            return false;
+        }
+
+        if(mTunerChannelSource.equals(source))
+        {
+            return true;
+        }
+
+        if(mTunerChannelSource instanceof SourceWrapper wrapper)
+        {
+            return wrapper.wrapsSource(source);
+        }
+
+        return false;
     }
 
     /**

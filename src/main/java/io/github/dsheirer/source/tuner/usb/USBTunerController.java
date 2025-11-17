@@ -136,6 +136,14 @@ public abstract class USBTunerController extends TunerController
     protected abstract void deviceStop();
 
     /**
+     * Hook invoked before the USB context is initialized. Sub-classes can override to perform prerequisite work.
+     * @throws SourceException if the subclass encounters an unrecoverable error.
+     */
+    protected void preStart() throws SourceException
+    {
+    }
+
+    /**
      * Starts or initializes this tuner.
      *
      * Note: sub-class implementations should override and invoke this method and then perform additional initialization
@@ -145,6 +153,8 @@ public abstract class USBTunerController extends TunerController
      */
     public final void start() throws SourceException
     {
+        preStart();
+
         if(mDeviceContext == null)
         {
             throw new SourceException("Device cannot be reused once it has been shutdown");
@@ -176,6 +186,12 @@ public abstract class USBTunerController extends TunerController
         mDeviceHandle = new DeviceHandle();
         status = LibUsb.open(mDevice, mDeviceHandle);
 
+        Device openedDevice = null;
+        if(status == LibUsb.SUCCESS)
+        {
+            openedDevice = LibUsb.getDevice(mDeviceHandle);
+        }
+
         //Now that we have opened the device and added an additional reference, remove the original reference placed on
         // the device during the findDevice() operation
         LibUsb.unrefDevice(mDevice);
@@ -195,6 +211,11 @@ public abstract class USBTunerController extends TunerController
 
             mLog.error("Can't open USB tuner - check driver or Linux udev rules");
             throw new SourceException("Can't open USB tuner - reinstall driver? - " + LibUsb.errorName(status));
+        }
+
+        if(openedDevice != null)
+        {
+            mDevice = openedDevice;
         }
 
         //Detach the kernel driver if active and detach is supported.  Otherwise, let the claim interface fail.
@@ -310,7 +331,15 @@ public abstract class USBTunerController extends TunerController
     /**
      * Starts streaming data from the tuner
      */
-    private void startStreaming()
+    protected boolean isStreamingActive()
+    {
+        return mStreaming.get();
+    }
+
+    /**
+     * Starts streaming data from the tuner
+     */
+    protected void startStreaming()
     {
         if(mStreaming.compareAndSet(false, true))
         {
@@ -340,7 +369,7 @@ public abstract class USBTunerController extends TunerController
     /**
      * Stop streaming data from the tuner
      */
-    private void stopStreaming()
+    protected void stopStreaming()
     {
         if(mStreaming.compareAndSet(true, false))
         {
@@ -424,6 +453,11 @@ public abstract class USBTunerController extends TunerController
      */
     protected Device getDevice()
     {
+        if(mDeviceHandle != null)
+        {
+            return LibUsb.getDevice(mDeviceHandle);
+        }
+
         return mDevice;
     }
 

@@ -22,6 +22,7 @@ import io.github.dsheirer.sample.Listener;
 import io.github.dsheirer.source.tuner.Tuner;
 import io.github.dsheirer.source.tuner.TunerEvent;
 import io.github.dsheirer.source.tuner.configuration.TunerConfigurationManager;
+import io.github.dsheirer.source.tuner.manager.ChannelSourceManager;
 import io.github.dsheirer.source.tuner.manager.DiscoveredTuner;
 import io.github.dsheirer.source.tuner.manager.DiscoveredUSBTuner;
 import io.github.dsheirer.source.tuner.manager.IDiscoveredTunerStatusListener;
@@ -79,7 +80,10 @@ public class DiscoveredTunerModel extends AbstractTableModel implements Listener
      */
     public List<DiscoveredTuner> getAvailableTuners()
     {
-        return mDiscoveredTuners.stream().filter(discoveredTuner -> discoveredTuner.hasTuner()).toList();
+        return mDiscoveredTuners.stream()
+                .filter(discoveredTuner -> discoveredTuner.hasTuner() && discoveredTuner.isAvailable() &&
+                        discoveredTuner.getTuner().getChannelSourceManager() != null)
+                .toList();
     }
 
     /**
@@ -515,8 +519,11 @@ public class DiscoveredTunerModel extends AbstractTableModel implements Listener
                 case COLUMN_CHANNEL_COUNT:
                     if(discoveredTuner.hasTuner())
                     {
-                        int channelCount = discoveredTuner.getTuner().getChannelSourceManager().getTunerChannelCount();
-                        return channelCount + " (" + (discoveredTuner.getTuner().getTunerController().isLockedSampleRate() ? "LOCKED)" : "UNLOCKED)");
+                        Tuner tuner = discoveredTuner.getTuner();
+                        ChannelSourceManager channelSourceManager = tuner.getChannelSourceManager();
+                        int channelCount = channelSourceManager != null ? channelSourceManager.getTunerChannelCount() : 0;
+                        boolean locked = tuner.getTunerController().isLockedSampleRate();
+                        return channelCount + " (" + (locked ? "LOCKED)" : "UNLOCKED)");
                     }
                     else
                     {

@@ -125,6 +125,7 @@ public abstract class Tuner implements ISourceEventProcessor, ITunerErrorListene
                 mChannelSourceManager = null;
             }
 
+            getTunerController().setLockedSampleRate(false);
             getTunerController().stop();
             getTunerController().dispose();
 

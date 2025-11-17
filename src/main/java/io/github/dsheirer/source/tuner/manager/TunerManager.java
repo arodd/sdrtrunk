@@ -61,6 +61,7 @@ import org.usb4java.DeviceList;
 import org.usb4java.HotplugCallback;
 import org.usb4java.HotplugCallbackHandle;
 import org.usb4java.LibUsb;
+import org.usb4java.Version;
 
 /**
  * Tuner manager provides access to tuners using USB, recording, sound-card and system-daemon accessible devices. This
@@ -195,6 +196,7 @@ public class TunerManager implements IDiscoveredTunerStatusListener
                     {
                         int bus = LibUsb.getBusNumber(device);
                         int port = LibUsb.getPortNumber(device);
+                        int address = LibUsb.getDeviceAddress(device);
 
                         if(port > 0)
                         {
@@ -214,7 +216,7 @@ public class TunerManager implements IDiscoveredTunerStatusListener
                                             "] Tuner Class [" + tunerClass + "]");
                                     ChannelizerType channelizerType = mUserPreferences.getTunerPreference().getChannelizerType();
                                     DiscoveredUSBTuner discoveredUSBTuner = new DiscoveredUSBTuner(tunerClass, bus,
-                                            portAddress, channelizerType);
+                                            portAddress, address, channelizerType);
                                     discoveredUSBTuners.add(discoveredUSBTuner);
                                 }
                             }
@@ -424,7 +426,7 @@ public class TunerManager implements IDiscoveredTunerStatusListener
     {
         if(current == TunerStatus.ENABLED)
         {
-            discoveredTuner.start();
+            discoveredTuner.startAndConfigure();
         }
 
         //Special handling for RSPduo to auto-update enabled state for slave device when configured for master/slave operation
@@ -691,6 +693,7 @@ public class TunerManager implements IDiscoveredTunerStatusListener
             if(port > 0)
             {
                 String portAddress = getPortAddress(device);
+                int address = LibUsb.getDeviceAddress(device);
 
                 switch(event)
                 {
@@ -708,7 +711,7 @@ public class TunerManager implements IDiscoveredTunerStatusListener
                                         "] Tuner Class [" + tunerClass + "]");
                                 ChannelizerType channelizerType = mUserPreferences.getTunerPreference().getChannelizerType();
                                 DiscoveredUSBTuner discoveredUSBTuner = new DiscoveredUSBTuner(tunerClass, bus,
-                                        portAddress, channelizerType);
+                                        portAddress, address, channelizerType);
 
                                 if(tunerClass.isFuncubeTuner())
                                 {
@@ -746,7 +749,13 @@ public class TunerManager implements IDiscoveredTunerStatusListener
          */
         public void start()
         {
-            if(LibUsb.hasCapability(LibUsb.CAP_HAS_HOTPLUG))
+            if(Boolean.getBoolean("sdrtrunk.disableHotplug"))
+            {
+                mLog.info("LibUsb Hotplug event notification disabled via system property.");
+                return;
+            }
+
+            if(isHotplugSupported())
             {
                 mHotplugCallbackHandle = new HotplugCallbackHandle();
                 int events = LibUsb.HOTPLUG_EVENT_DEVICE_ARRIVED | LibUsb.HOTPLUG_EVENT_DEVICE_LEFT;
@@ -761,9 +770,7 @@ public class TunerManager implements IDiscoveredTunerStatusListener
 
                 if(status == LibUsb.SUCCESS)
                 {
-                    Runnable eventHandler = () -> LibUsb.handleEvents(mLibUsbApplicationContext);
-                    mEventProcessorFuture = ThreadPool.SCHEDULED.scheduleAtFixedRate(eventHandler,
-                            0, 1, TimeUnit.SECONDS);
+                    startEventProcessor();
                 }
                 else
                 {
@@ -773,7 +780,7 @@ public class TunerManager implements IDiscoveredTunerStatusListener
             }
             else
             {
-                mLog.info("LibUsb Hotplug event notification Is Not Supported on this platform.");
+                mLog.info("LibUsb Hotplug event notification is not available and will be disabled.");
             }
         }
 
@@ -788,6 +795,79 @@ public class TunerManager implements IDiscoveredTunerStatusListener
                 mHotplugCallbackHandle = null;
             }
 
+            stopEventProcessor();
+        }
+
+        private boolean isHotplugSupported()
+        {
+            if(!LibUsb.hasCapability(LibUsb.CAP_HAS_HOTPLUG))
+            {
+                return false;
+            }
+
+            return isHotplugVersionSupported();
+        }
+
+        private boolean isHotplugVersionSupported()
+        {
+            try
+            {
+                Version version = LibUsb.getVersion();
+
+                if(version == null)
+                {
+                    mLog.warn("LibUsb Hotplug disabled - unable to determine libusb version");
+                    return false;
+                }
+
+                if(version.major() > 1 || version.minor() > 0)
+                {
+                    return true;
+                }
+
+                boolean supported = version.micro() >= 24;
+
+                if(!supported)
+                {
+                    mLog.warn("LibUsb Hotplug disabled for libusb version {}.{}.{} (requires 1.0.24 or newer)",
+                            version.major(), version.minor(), version.micro());
+                }
+
+                return supported;
+            }
+            catch(Throwable t)
+            {
+                mLog.warn("LibUsb Hotplug disabled - error checking libusb version", t);
+                return false;
+            }
+        }
+
+        private void startEventProcessor()
+        {
+            if(mEventProcessorFuture != null && !mEventProcessorFuture.isDone())
+            {
+                return;
+            }
+
+            Runnable eventHandler = () ->
+            {
+                int result = LibUsb.handleEventsTimeout(mLibUsbApplicationContext, 250_000);
+
+                if(result == LibUsb.ERROR_INTERRUPTED || result == LibUsb.SUCCESS)
+                {
+                    return;
+                }
+                else if(result < 0)
+                {
+                    mLog.warn("LibUsb hotplug event handler error: {}", LibUsb.errorName(result));
+                }
+            };
+
+            mEventProcessorFuture = ThreadPool.SCHEDULED.scheduleAtFixedRate(eventHandler, 0, 250, TimeUnit.MILLISECONDS);
+        }
+
+        private void stopEventProcessor()
+        {
             if(mEventProcessorFuture != null)
             {
                 mEventProcessorFuture.cancel(true);

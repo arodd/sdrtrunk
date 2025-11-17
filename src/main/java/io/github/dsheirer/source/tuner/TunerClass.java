@@ -30,6 +30,7 @@ public enum TunerClass
 	FUNCUBE_DONGLE_PRO("Funcube Dongle Pro" ),
 	FUNCUBE_DONGLE_PRO_PLUS("Funcube Dongle Pro+" ),
 	HACKRF("HackRF" ),
+	BLADE_RF("bladeRF"),
 	RTL2832("RTL-2832"),
 	RSP("RSP"),
 	TEST_TUNER("Test"),
@@ -53,8 +54,8 @@ public enum TunerClass
 		return mDescription;
 	}
 
-	public static final EnumSet<TunerClass> SUPPORTED_USB_TUNERS = EnumSet.of(AIRSPY, AIRSPY_HF, HACKRF, RTL2832,
-			FUNCUBE_DONGLE_PRO, FUNCUBE_DONGLE_PRO_PLUS);
+	public static final EnumSet<TunerClass> SUPPORTED_USB_TUNERS = EnumSet.of(AIRSPY, AIRSPY_HF, HACKRF, BLADE_RF,
+			RTL2832, FUNCUBE_DONGLE_PRO, FUNCUBE_DONGLE_PRO_PLUS);
 
 	public static final EnumSet<TunerClass> FUNCUBE_TUNERS = EnumSet.of(FUNCUBE_DONGLE_PRO, FUNCUBE_DONGLE_PRO_PLUS);
 
@@ -121,6 +122,12 @@ public enum TunerClass
 			case 0x1D50CC15: //HACKRF ONE
 			case 0x1D50604B: //HACKRF JAWBREAKER
 				return HACKRF;
+			case 0x1D506062: //bladeRF x40/x115 (OpenMoko VID)
+			case 0x2CF05250: //bladeRF 2.0 Micro xA4
+			case 0x2CF05251: //bladeRF 2.0 Micro xA9
+			case 0x2CF05252: //bladeRF 2.0 Micro xA4-N
+			case 0x2CF05253: //bladeRF 2.0 Micro xA9-N
+				return BLADE_RF;
 			case 0x1D5060A1:
 				return AIRSPY;
 			case 0x03EB800C:

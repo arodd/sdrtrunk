@@ -298,7 +298,66 @@ public class PolyphaseChannelManager implements ISourceEventProcessor
                 //Update channel calculator immediately so that channels can be allocated
                 double sampleRate = sourceEvent.getValue().doubleValue();
                 int channelCount = ComplexPolyphaseChannelizerM2.getChannelCount(sampleRate);
-                mChannelCalculator.setRates(sampleRate, channelCount);
+
+                synchronized(mBufferDispatcher)
+                {
+                    boolean wasStreaming = mPolyphaseChannelizer != null &&
+                            mPolyphaseChannelizer.getRegisteredChannelCount() > 0;
+
+                    if(wasStreaming)
+                    {
+                        mNativeBufferProvider.removeBufferListener(mBufferDispatcher);
+                        mBufferDispatcher.stop();
+                        mPolyphaseChannelizer.stop();
+                    }
+
+                    mChannelCalculator.setRates(sampleRate, channelCount);
+
+                    if(mPolyphaseChannelizer != null)
+                    {
+                        try
+                        {
+                            mPolyphaseChannelizer.setRates(sampleRate, channelCount);
+                        }
+                        catch(IllegalArgumentException iae)
+                        {
+                            mLog.error("Unable to update polyphase channelizer sample rate", iae);
+                            mPolyphaseChannelizer = null;
+                        }
+                    }
+
+                    if(mPolyphaseChannelizer == null)
+                    {
+                        try
+                        {
+                            mPolyphaseChannelizer = new ComplexPolyphaseChannelizerM2(sampleRate,
+                                    POLYPHASE_CHANNELIZER_TAPS_PER_CHANNEL);
+                            for(PolyphaseChannelSource channelSource: mChannelSources)
+                            {
+                                mPolyphaseChannelizer.addChannel(channelSource);
+                            }
+                        }
+                        catch(IllegalArgumentException iae)
+                        {
+                            mLog.error("Could not create polyphase channelizer for sample rate [" +
+                                    sampleRate + "]", iae);
+                        }
+                        catch(FilterDesignException fde)
+                        {
+                            mLog.error("Filter design failed while creating polyphase channelizer", fde);
+                            mPolyphaseChannelizer = null;
+                        }
+                    }
+
+                    if(wasStreaming && mPolyphaseChannelizer != null)
+                    {
+                        mPolyphaseChannelizer.start();
+                        mBufferDispatcher.start();
+                        mNativeBufferProvider.addBufferListener(mBufferDispatcher);
+                    }
+                }
+
+                mNativeBufferReceiver.requestOutputProcessorUpdate();
                 break;
             case NOTIFICATION_FREQUENCY_AND_SAMPLE_RATE_LOCKED:
             case NOTIFICATION_FREQUENCY_AND_SAMPLE_RATE_UNLOCKED:
@@ -494,6 +553,14 @@ public class PolyphaseChannelManager implements ISourceEventProcessor
                 mChannelCalculator.setCenterFrequency(frequency);
                 mOutputProcessorUpdateRequired = true;
             }
+        }
+
+        /**
+         * Requests that the output processors be updated on the next buffer dispatch.
+         */
+        public void requestOutputProcessorUpdate()
+        {
+            mOutputProcessorUpdateRequired = true;
         }
 
         /**

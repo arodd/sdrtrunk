@@ -32,6 +32,10 @@ import io.github.dsheirer.source.tuner.airspy.hf.AirspyHfTuner;
 import io.github.dsheirer.source.tuner.airspy.hf.AirspyHfTunerConfiguration;
 import io.github.dsheirer.source.tuner.airspy.hf.AirspyHfTunerController;
 import io.github.dsheirer.source.tuner.airspy.hf.AirspyHfTunerEditor;
+import io.github.dsheirer.source.tuner.bladerf.BladeRFTuner;
+import io.github.dsheirer.source.tuner.bladerf.BladeRFTunerConfiguration;
+import io.github.dsheirer.source.tuner.bladerf.BladeRFTunerController;
+import io.github.dsheirer.source.tuner.bladerf.BladeRFTunerEditor;
 import io.github.dsheirer.source.tuner.configuration.TunerConfiguration;
 import io.github.dsheirer.source.tuner.fcd.FCDTuner;
 import io.github.dsheirer.source.tuner.fcd.proV1.FCD1TunerConfiguration;
@@ -348,8 +352,8 @@ public class TunerFactory
      * @return instantiated tuner
      * @throws SourceException if the tuner class is unrecognized
      */
-    public static Tuner getUsbTuner(TunerClass tunerClass, String portAddress, int bus, ITunerErrorListener tunerErrorListener,
-                                    ChannelizerType channelizerType) throws SourceException
+    public static Tuner getUsbTuner(TunerClass tunerClass, String portAddress, int bus, int deviceAddress,
+                                    ITunerErrorListener tunerErrorListener, ChannelizerType channelizerType) throws SourceException
     {
         switch(tunerClass)
         {
@@ -375,6 +379,9 @@ public class TunerFactory
                 throw new SourceException("Unable to find matching tuner sound card mixer");
             case HACKRF:
                 return new HackRFTuner(new HackRFTunerController(bus, portAddress, tunerErrorListener), tunerErrorListener, channelizerType);
+            case BLADE_RF:
+                return new BladeRFTuner(new BladeRFTunerController(bus, portAddress, deviceAddress, tunerErrorListener),
+                        tunerErrorListener, channelizerType);
             case RTL2832:
                 return new RTL2832Tuner(new RTL2832TunerController(bus, portAddress, tunerErrorListener), tunerErrorListener, channelizerType);
             default:
@@ -424,6 +431,8 @@ public class TunerFactory
             case HACKRF_ONE:
             case HACKRF_RAD1O:
                 return new HackRFTunerConfiguration(uniqueID);
+            case BLADE_RF:
+                return new BladeRFTunerConfiguration(uniqueID);
             case RAFAELMICRO_R820T:
                 return new R820TTunerConfiguration(uniqueID);
             case RAFAELMICRO_R828D:
@@ -467,6 +476,8 @@ public class TunerFactory
                 return new FCD2TunerEditor(userPreferences, tunerManager, discoveredTuner);
             case HACKRF:
                 return new HackRFTunerEditor(userPreferences, tunerManager, discoveredTuner);
+            case BLADE_RF:
+                return new BladeRFTunerEditor(userPreferences, tunerManager, discoveredTuner);
             case RSP:
                 if(discoveredTuner instanceof DiscoveredRspTuner discoveredRspTuner)
                 {

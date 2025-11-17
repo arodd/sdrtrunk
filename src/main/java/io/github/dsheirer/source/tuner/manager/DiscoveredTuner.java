@@ -140,7 +140,7 @@ public abstract class DiscoveredTuner implements ITunerErrorListener
 
             if(mEnabled)
             {
-                start();
+                startAndConfigure();
                 setTunerStatus(TunerStatus.ENABLED);
             }
             else
@@ -206,7 +206,15 @@ public abstract class DiscoveredTuner implements ITunerErrorListener
     {
         mTunerConfiguration = tunerConfiguration;
 
-        if(hasTuner())
+        applyStoredConfiguration();
+    }
+
+    /**
+     * Applies the stored tuner configuration to the running tuner, if available.
+     */
+    private void applyStoredConfiguration()
+    {
+        if(hasTuner() && mTunerConfiguration != null)
         {
             try
             {
@@ -305,6 +313,19 @@ public abstract class DiscoveredTuner implements ITunerErrorListener
     public abstract void start();
 
     /**
+     * Starts the tuner and applies any stored tuner configuration before the tuner is reported as enabled.
+     */
+    public void startAndConfigure()
+    {
+        start();
+
+        if(hasTuner())
+        {
+            applyStoredConfiguration();
+        }
+    }
+
+    /**
      * Attempts to restart a tuner that's currently in an error state
      */
     public void restart()
@@ -317,7 +338,7 @@ public abstract class DiscoveredTuner implements ITunerErrorListener
             {
                 //Change status to enabled so that we can attempt to start, but don't notify listeners yet.
                 setTunerStatus(TunerStatus.ENABLED);
-                start();
+                startAndConfigure();
             }
             else
             {

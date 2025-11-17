@@ -79,7 +79,8 @@ public class ComplexPolyphaseChannelizerM2 extends AbstractComplexPolyphaseChann
     private int mSampleBufferPointer;
     private int mSamplesPerBlock;
     private int mTapsPerChannel;
-    private List<float[]> mProcessedChannelResultsList = new ArrayList<>();
+    private final List<float[]> mProcessedChannelResultsList = new ArrayList<>();
+    private final Object mProcessedResultsLock = new Object();
 
     /**
      * Creates a NMDPFB channelizer instance.
@@ -139,6 +140,7 @@ public class ComplexPolyphaseChannelizerM2 extends AbstractComplexPolyphaseChann
     public void stop()
     {
         mIFFTProcessorDispatcher.stop();
+        resetProcessingState();
     }
 
     /**
@@ -219,12 +221,23 @@ public class ComplexPolyphaseChannelizerM2 extends AbstractComplexPolyphaseChann
             if(mSampleBufferPointer >= mSamplesPerBlock)
             {
                 //Filter buffered samples and produce a single sample across each of the polyphase channels
-                mProcessedChannelResultsList.add(process());
+                List<float[]> batchToDispatch = null;
+                float[] processedBlock = process();
 
-                if(mProcessedChannelResultsList.size() >= PROCESSED_CHANNEL_RESULTS_THRESHOLD)
+                synchronized(mProcessedResultsLock)
                 {
-                    mIFFTProcessorDispatcher.receive(new ArrayList<>(mProcessedChannelResultsList));
-                    mProcessedChannelResultsList.clear();
+                    mProcessedChannelResultsList.add(processedBlock);
+
+                    if(mProcessedChannelResultsList.size() >= PROCESSED_CHANNEL_RESULTS_THRESHOLD)
+                    {
+                        batchToDispatch = new ArrayList<>(mProcessedChannelResultsList);
+                        mProcessedChannelResultsList.clear();
+                    }
+                }
+
+                if(batchToDispatch != null)
+                {
+                    mIFFTProcessorDispatcher.receive(batchToDispatch);
                 }
 
                 //Right-shift the samples in the buffer over to make room for a new block of samples
@@ -397,6 +410,21 @@ public class ComplexPolyphaseChannelizerM2 extends AbstractComplexPolyphaseChann
         mMiddleBlockMap = getMiddleBlockMap(channelCount);
         mInlineFilter = getAlignedFilter(coefficients, channelCount, mTapsPerChannel);
         mInlineSamples = new float[bufferLength];
+        resetProcessingState();
+    }
+
+    /**
+     * Clears any partially accumulated channel results and resets processing pointers/state.
+     */
+    private void resetProcessingState()
+    {
+        synchronized(mProcessedResultsLock)
+        {
+            mProcessedChannelResultsList.clear();
+        }
+
+        mSampleBufferPointer = 0;
+        mTopBlockIndicator = true;
     }
 
     /**

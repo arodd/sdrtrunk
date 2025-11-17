@@ -37,6 +37,7 @@ public class DiscoveredUSBTuner extends DiscoveredTuner
     private int mBus;
     private String mPortAddress;
     private ChannelizerType mChannelizerType;
+    private int mDeviceAddress;
 
     /**
      * Constructs an instance
@@ -44,11 +45,13 @@ public class DiscoveredUSBTuner extends DiscoveredTuner
      * @param portAddress (USB)
      * @param channelizerType to use with the tuner
      */
-    public DiscoveredUSBTuner(TunerClass tunerClass, int bus, String portAddress, ChannelizerType channelizerType)
+    public DiscoveredUSBTuner(TunerClass tunerClass, int bus, String portAddress, int deviceAddress,
+                              ChannelizerType channelizerType)
     {
         mTunerClass = tunerClass;
         mBus = bus;
         mPortAddress = portAddress;
+        mDeviceAddress = deviceAddress;
         mChannelizerType = channelizerType;
     }
 
@@ -87,6 +90,14 @@ public class DiscoveredUSBTuner extends DiscoveredTuner
         return mPortAddress;
     }
 
+    /**
+     * USB device address on the bus
+     */
+    public int getDeviceAddress()
+    {
+        return mDeviceAddress;
+    }
+
     @Override
     public String getId()
     {
@@ -104,7 +115,8 @@ public class DiscoveredUSBTuner extends DiscoveredTuner
         {
             try
             {
-                mTuner = TunerFactory.getUsbTuner(getTunerClass(), getPortAddress(), getBus(), this, mChannelizerType);
+                mTuner = TunerFactory.getUsbTuner(getTunerClass(), getPortAddress(), getBus(), getDeviceAddress(), this,
+                        mChannelizerType);
                 mTuner.start();
             }
             catch(SourceException se)
