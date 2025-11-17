@@ -37,10 +37,10 @@ class BladeRFNativeBufferFactory extends AbstractNativeBufferFactory
         duplicate.order(ByteOrder.LITTLE_ENDIAN);
         duplicate.rewind();
 
-        // Wrap the FX3 transfer buffer directly to avoid per-packet heap allocations while maintaining
-        // little-endian ordering
         ShortBuffer shortBuffer = duplicate.asShortBuffer();
+        short[] data = new short[shortBuffer.remaining()];
+        shortBuffer.get(data);
 
-        return new BladeRFNativeBuffer(shortBuffer, timestamp, getSamplesPerMillisecond());
+        return new BladeRFNativeBuffer(data, timestamp, getSamplesPerMillisecond());
     }
 }
