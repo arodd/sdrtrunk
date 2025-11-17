@@ -21,6 +21,8 @@ package io.github.dsheirer.source.tuner.bladerf;
 
 import io.github.dsheirer.buffer.AbstractNativeBufferFactory;
 import io.github.dsheirer.buffer.INativeBuffer;
+import java.util.ArrayDeque;
+import java.util.Iterator;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.ShortBuffer;
@@ -30,6 +32,9 @@ import java.nio.ShortBuffer;
  */
 class BladeRFNativeBufferFactory extends AbstractNativeBufferFactory
 {
+    private static final int MAX_BUFFER_POOL_SIZE = 32;
+    private final ArrayDeque<short[]> mBufferPool = new ArrayDeque<>();
+
     @Override
     public INativeBuffer getBuffer(ByteBuffer samples, long timestamp)
     {
@@ -38,9 +43,45 @@ class BladeRFNativeBufferFactory extends AbstractNativeBufferFactory
         duplicate.rewind();
 
         ShortBuffer shortBuffer = duplicate.asShortBuffer();
-        short[] data = new short[shortBuffer.remaining()];
-        shortBuffer.get(data);
+        int length = shortBuffer.remaining();
+        short[] data = borrowBuffer(length);
+        shortBuffer.get(data, 0, length);
 
-        return new BladeRFNativeBuffer(data, timestamp, getSamplesPerMillisecond());
+        return new BladeRFNativeBuffer(data, length, timestamp, getSamplesPerMillisecond(), this::recycleBuffer);
+    }
+
+    /**
+     * Borrows a short array from the pool or allocates a new one if none are available.
+     * @param length of the short array needed
+     * @return a short array of at least the requested length
+     */
+    private synchronized short[] borrowBuffer(int length)
+    {
+        Iterator<short[]> iterator = mBufferPool.iterator();
+
+        while(iterator.hasNext())
+        {
+            short[] candidate = iterator.next();
+
+            if(candidate.length >= length)
+            {
+                iterator.remove();
+                return candidate;
+            }
+        }
+
+        return new short[length];
+    }
+
+    /**
+     * Returns a short array to the pool for reuse.
+     * @param buffer to recycle
+     */
+    private synchronized void recycleBuffer(short[] buffer)
+    {
+        if(buffer != null && mBufferPool.size() < MAX_BUFFER_POOL_SIZE)
+        {
+            mBufferPool.addFirst(buffer);
+        }
     }
 }
