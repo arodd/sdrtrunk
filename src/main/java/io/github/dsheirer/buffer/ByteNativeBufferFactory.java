@@ -26,13 +26,25 @@ import java.nio.ByteBuffer;
  */
 public class ByteNativeBufferFactory extends AbstractNativeBufferFactory
 {
+    private static final int MIN_FRAGMENT_BYTES = ByteNativeBuffer.BYTES_PER_FRAGMENT;
     private DcCorrectionManager mDcCorrectionManager = new DcCorrectionManager();
 
     @Override
     public INativeBuffer getBuffer(ByteBuffer samples, long timestamp)
     {
-        byte[] copy = new byte[samples.capacity()];
-        samples.get(copy);
+        ByteBuffer buffer = samples.slice();
+        int available = buffer.remaining();
+        int usable = available - (available % MIN_FRAGMENT_BYTES);
+
+        if(usable == 0)
+        {
+            return null;
+        }
+
+        buffer.limit(usable);
+
+        byte[] copy = new byte[usable];
+        buffer.get(copy);
 
         if(mDcCorrectionManager.shouldCalculateDc())
         {

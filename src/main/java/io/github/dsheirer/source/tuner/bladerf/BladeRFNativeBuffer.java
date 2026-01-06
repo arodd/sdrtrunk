@@ -20,23 +20,29 @@
 package io.github.dsheirer.source.tuner.bladerf;
 
 import io.github.dsheirer.buffer.AbstractNativeBuffer;
+import io.github.dsheirer.buffer.ReleasableNativeBuffer;
 import io.github.dsheirer.sample.complex.ComplexSamples;
 import io.github.dsheirer.sample.complex.InterleavedComplexSamples;
 import java.lang.ref.Cleaner;
-import java.util.function.Consumer;
 import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Native buffer wrapper for bladeRF signed 16-bit IQ samples.
  */
-class BladeRFNativeBuffer extends AbstractNativeBuffer
+class BladeRFNativeBuffer extends AbstractNativeBuffer implements ReleasableNativeBuffer
 {
+    private static final Logger mLog = LoggerFactory.getLogger(BladeRFNativeBuffer.class);
     private static final int MAX_COMPLEX_FRAGMENT_SIZE = 2048;
     private static final float SAMPLE_SCALE = 1.0f / 2048.0f;
     private static final Cleaner CLEANER = Cleaner.create();
     private final short[] mSamples;
     private final int mSampleLength;
     private final Cleaner.Cleanable mCleanable;
+    private final AtomicInteger mReferenceCount = new AtomicInteger(1);
 
     BladeRFNativeBuffer(short[] samples, int sampleLength, long timestamp, float samplesPerMillisecond, Consumer<short[]> recycler)
     {
@@ -44,6 +50,37 @@ class BladeRFNativeBuffer extends AbstractNativeBuffer
         mSamples = samples;
         mSampleLength = sampleLength;
         mCleanable = CLEANER.register(this, () -> recycler.accept(samples));
+    }
+
+    @Override
+    public ReleasableNativeBuffer retain()
+    {
+        int updated = mReferenceCount.incrementAndGet();
+
+        if(updated <= 1)
+        {
+            //Reference count was zero before this call; reverse and warn
+            mReferenceCount.decrementAndGet();
+            throw new IllegalStateException("Cannot retain a released BladeRFNativeBuffer");
+        }
+
+        return this;
+    }
+
+    @Override
+    public void release()
+    {
+        int remaining = mReferenceCount.decrementAndGet();
+
+        if(remaining == 0)
+        {
+            mCleanable.clean();
+        }
+        else if(remaining < 0)
+        {
+            mReferenceCount.incrementAndGet();
+            mLog.warn("BladeRFNativeBuffer released more times than retained");
+        }
     }
 
     @Override

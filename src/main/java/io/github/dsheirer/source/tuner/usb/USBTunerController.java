@@ -762,7 +762,7 @@ public abstract class USBTunerController extends TunerController
 
                     if(transferLength > 0)
                     {
-                        dispatchTransfer(transfer);
+                        dispatchTransfer(transfer, transferLength);
                     }
 
                     transfer.buffer().rewind();
@@ -792,12 +792,23 @@ public abstract class USBTunerController extends TunerController
          * Dispatches the native buffer to registered listeners.
          * @param transfer to copy and dispatch
          */
-        private void dispatchTransfer(Transfer transfer)
+        private void dispatchTransfer(Transfer transfer, int actualLength)
         {
-            //Pass the transfer's byte buffer so the native buffer factory can make a copy of the byte array contents
-            //and package it as a native buffer.
-            INativeBuffer nativeBuffer = getNativeBufferFactory().getBuffer(transfer.buffer(), System.currentTimeMillis());
-            mNativeBufferBroadcaster.broadcast(nativeBuffer);
+            ByteBuffer payload = transfer.buffer().duplicate();
+            int boundedLength = Math.min(actualLength, payload.capacity());
+
+            payload.position(0);
+            payload.limit(boundedLength);
+
+            //Use a slice so factories only see the bytes that were actually transferred
+            ByteBuffer slice = payload.slice();
+
+            INativeBuffer nativeBuffer = getNativeBufferFactory().getBuffer(slice, System.currentTimeMillis());
+
+            if(nativeBuffer != null)
+            {
+                mNativeBufferBroadcaster.broadcast(nativeBuffer);
+            }
         }
     }
 

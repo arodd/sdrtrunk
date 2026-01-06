@@ -32,6 +32,8 @@ import java.util.Arrays;
  */
 public class AirspyNativeBufferFactory extends AbstractNativeBufferFactory
 {
+    private static final int UNPACKED_FRAGMENT_BYTES = AirspyBufferIterator.FRAGMENT_SIZE * 4; //2 shorts (4 bytes) per iteration
+    private static final int PACKED_FRAGMENT_BYTES = AirspyBufferIterator.FRAGMENT_SIZE * 3; //3 bytes produce 2 samples
     private boolean mSamplePacking = false;
     private short[] mResidualI = new short[AirspyBufferIterator.I_OVERLAP];
     private short[] mResidualQ = new short[AirspyBufferIterator.Q_OVERLAP];
@@ -100,7 +102,19 @@ public class AirspyNativeBufferFactory extends AbstractNativeBufferFactory
     @Override
     public INativeBuffer getBuffer(ByteBuffer buffer, long timestamp)
     {
-        short[] samples = mConverter.convert(buffer);
+        ByteBuffer payload = buffer.slice();
+        int requiredBytesPerFragment = mSamplePacking ? PACKED_FRAGMENT_BYTES : UNPACKED_FRAGMENT_BYTES;
+        int available = payload.remaining();
+        int usable = available - (available % requiredBytesPerFragment);
+
+        if(usable == 0)
+        {
+            return null;
+        }
+
+        payload.limit(usable);
+
+        short[] samples = mConverter.convert(payload);
 
         INativeBuffer nativeBuffer = new AirspyNativeBuffer(samples,
                 Arrays.copyOf(mResidualI, mResidualI.length),

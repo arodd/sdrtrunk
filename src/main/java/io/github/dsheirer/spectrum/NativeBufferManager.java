@@ -20,6 +20,7 @@
 package io.github.dsheirer.spectrum;
 
 import io.github.dsheirer.buffer.INativeBuffer;
+import io.github.dsheirer.buffer.ReleasableNativeBuffer;
 import io.github.dsheirer.sample.complex.InterleavedComplexSamples;
 
 import java.io.IOException;
@@ -77,6 +78,7 @@ public class NativeBufferManager<T extends INativeBuffer>
         //Add this buffer to the producer queue if it's needed to meet the anticipated request size
         if(mProducerAvailable < mRequestSize)
         {
+            retainIfReleasable(nativeBuffer);
             mProducerQueue.add(nativeBuffer);
             mProducerAvailable += nativeBuffer.sampleCount();
         }
@@ -88,7 +90,9 @@ public class NativeBufferManager<T extends INativeBuffer>
     public void clear()
     {
         mTransferQueue.clear();
+        releaseAll(mProducerQueue);
         mProducerQueue.clear();
+        releaseAll(mConsumerQueue);
         mConsumerQueue.clear();
     }
 
@@ -144,7 +148,27 @@ public class NativeBufferManager<T extends INativeBuffer>
             }
         }
 
+        releaseAll(mConsumerQueue);
         mConsumerQueue.clear();
         return samples;
+    }
+
+    private void retainIfReleasable(T buffer)
+    {
+        if(buffer instanceof ReleasableNativeBuffer releasable)
+        {
+            releasable.retain();
+        }
+    }
+
+    private void releaseAll(List<T> buffers)
+    {
+        for(T buffer: buffers)
+        {
+            if(buffer instanceof ReleasableNativeBuffer releasable)
+            {
+                releasable.release();
+            }
+        }
     }
 }

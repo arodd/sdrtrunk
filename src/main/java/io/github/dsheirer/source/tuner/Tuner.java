@@ -89,6 +89,7 @@ public abstract class Tuner implements ISourceEventProcessor, ITunerErrorListene
     {
         if(mRunning.compareAndSet(false, true))
         {
+            getTunerController().setShuttingDown(false);
             try
             {
                 getTunerController().start();
@@ -116,6 +117,7 @@ public abstract class Tuner implements ISourceEventProcessor, ITunerErrorListene
     {
         if(mRunning.compareAndSet(true, false))
         {
+            getTunerController().setShuttingDown(true);
             broadcast(new TunerEvent(this, Event.NOTIFICATION_SHUTTING_DOWN));
 
             if(getChannelSourceManager() != null)

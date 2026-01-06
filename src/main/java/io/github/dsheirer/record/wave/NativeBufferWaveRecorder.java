@@ -19,6 +19,7 @@
 package io.github.dsheirer.record.wave;
 
 import io.github.dsheirer.buffer.INativeBuffer;
+import io.github.dsheirer.buffer.ReleasableNativeBuffer;
 import io.github.dsheirer.module.Module;
 import io.github.dsheirer.sample.ConversionUtils;
 import io.github.dsheirer.sample.Listener;
@@ -183,7 +184,7 @@ public class NativeBufferWaveRecorder extends Module implements Listener<INative
         if(mRunning.get())
         {
             //Queue the buffer with the buffer processor so that recording occurs on the buffer processor thread
-            mBufferProcessor.receive(nativeBuffer);
+            mBufferProcessor.receive(retainIfReleasable(nativeBuffer));
         }
     }
 
@@ -228,9 +229,9 @@ public class NativeBufferWaveRecorder extends Module implements Listener<INative
 
             Iterator<InterleavedComplexSamples> iterator = nativeBuffer.iteratorInterleaved();
 
-            while(iterator.hasNext() & !error)
+            try
             {
-                try
+                while(iterator.hasNext() & !error)
                 {
                     ByteBuffer data = ConversionUtils.convertToSigned16BitSamples(iterator.next());
 
@@ -248,13 +249,35 @@ public class NativeBufferWaveRecorder extends Module implements Listener<INative
                         mLastReportedSize = mCurrentSize;
                     }
                 }
-                catch(IOException ioe)
-                {
-                    mLog.error("I/O exception while writing I/Q buffers to wave recorder - stopping recorder", ioe);
-                    error = true;
-                    stop();
-                }
             }
+            catch(IOException ioe)
+            {
+                mLog.error("I/O exception while writing I/Q buffers to wave recorder - stopping recorder", ioe);
+                error = true;
+                stop();
+            }
+            finally
+            {
+                releaseIfReleasable(nativeBuffer);
+            }
+        }
+    }
+
+    private INativeBuffer retainIfReleasable(INativeBuffer buffer)
+    {
+        if(buffer instanceof ReleasableNativeBuffer releasable)
+        {
+            releasable.retain();
+        }
+
+        return buffer;
+    }
+
+    private void releaseIfReleasable(INativeBuffer buffer)
+    {
+        if(buffer instanceof ReleasableNativeBuffer releasable)
+        {
+            releasable.release();
         }
     }
 }

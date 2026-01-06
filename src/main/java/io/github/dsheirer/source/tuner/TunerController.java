@@ -38,6 +38,7 @@ import io.github.dsheirer.source.tuner.frequency.FrequencyController.Tunable;
 import io.github.dsheirer.source.tuner.manager.FrequencyErrorCorrectionManager;
 import java.text.DecimalFormat;
 import java.util.SortedSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,6 +64,7 @@ public abstract class TunerController implements Tunable, ISourceEventProcessor,
     private ITunerErrorListener mTunerErrorListener;
     private DecimalFormat mFrequencyErrorPPMFormat = new DecimalFormat("0.0");
     private FrequencyErrorCorrectionManager mFrequencyErrorCorrectionManager;
+    private final AtomicBoolean mShuttingDown = new AtomicBoolean();
 
     /**
      * Abstract tuner controller class.  The tuner controller manages frequency bandwidth and currently tuned channels
@@ -75,6 +77,23 @@ public abstract class TunerController implements Tunable, ISourceEventProcessor,
         mFrequencyController = new FrequencyController(this);
         mSourceEventListener = new SourceEventListenerToProcessorAdapter(this);
         mFrequencyErrorCorrectionManager = new FrequencyErrorCorrectionManager(this);
+    }
+
+    /**
+     * Indicates if the controller is in the process of shutting down.
+     */
+    public boolean isShuttingDown()
+    {
+        return mShuttingDown.get();
+    }
+
+    /**
+     * Sets the controller shutdown state.  Used to suppress deferred actions during teardown and cleared on startup.
+     * @param shuttingDown true when shutdown begins, false when starting up again
+     */
+    public void setShuttingDown(boolean shuttingDown)
+    {
+        mShuttingDown.set(shuttingDown);
     }
 
     /**

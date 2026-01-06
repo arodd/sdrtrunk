@@ -19,6 +19,7 @@
 package io.github.dsheirer.util;
 
 import io.github.dsheirer.controller.NamingThreadFactory;
+import io.github.dsheirer.buffer.ReleasableNativeBuffer;
 import io.github.dsheirer.sample.Listener;
 import io.github.dsheirer.source.heartbeat.HeartbeatManager;
 import java.util.ArrayList;
@@ -102,6 +103,7 @@ public class Dispatcher<E> implements Listener<E>
     {
         if(mRunning.get())
         {
+            retainIfReleasable(e);
             mQueue.add(e);
         }
     }
@@ -147,7 +149,7 @@ public class Dispatcher<E> implements Listener<E>
                 //be able to release those locks or we'll get a deadlock situation.
                 mScheduledFuture.cancel(false);
                 mScheduledFuture = null;
-                mQueue.clear();
+                releaseAndClearQueue();
             }
 
             if(mExecutorService != null)
@@ -196,6 +198,14 @@ public class Dispatcher<E> implements Listener<E>
                         mLog.error("Error while flusing and dispatching element [" + element.getClass() + "] to listener [" +
                                 mListener.getClass() + "]", t);
                     }
+                    finally
+                    {
+                        releaseIfReleasable(element);
+                    }
+                }
+                else
+                {
+                    releaseIfReleasable(element);
                 }
             }
         }
@@ -231,6 +241,14 @@ public class Dispatcher<E> implements Listener<E>
                     mLog.error("Error while dispatching element [" + element.getClass() + "] to listener [" +
                             mListener.getClass() + "]", t);
                 }
+                finally
+                {
+                    releaseIfReleasable(element);
+                }
+            }
+            else
+            {
+                releaseIfReleasable(element);
             }
         }
     }
@@ -279,6 +297,33 @@ public class Dispatcher<E> implements Listener<E>
 
                 mRunning.set(false);
             }
+        }
+    }
+
+    private void retainIfReleasable(E element)
+    {
+        if(element instanceof ReleasableNativeBuffer releasable)
+        {
+            releasable.retain();
+        }
+    }
+
+    private void releaseIfReleasable(E element)
+    {
+        if(element instanceof ReleasableNativeBuffer releasable)
+        {
+            releasable.release();
+        }
+    }
+
+    private void releaseAndClearQueue()
+    {
+        List<E> elements = new ArrayList<>();
+        mQueue.drainTo(elements);
+
+        for(E element: elements)
+        {
+            releaseIfReleasable(element);
         }
     }
 }

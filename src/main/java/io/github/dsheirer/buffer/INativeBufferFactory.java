@@ -34,7 +34,7 @@ public interface INativeBufferFactory
      * @param samples byte array copied from native memory
      * @param timestamp of the samples
      * @param samplesPerMillisecond to calculate timestamp offset for child buffers.
-     * @return instance
+     * @return native buffer instance or {@code null} if the supplied samples do not contain a complete fragment
      */
     INativeBuffer getBuffer(ByteBuffer samples, long timestamp);
 

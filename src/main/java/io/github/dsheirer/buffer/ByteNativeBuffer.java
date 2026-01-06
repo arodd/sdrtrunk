@@ -30,6 +30,7 @@ import java.util.Iterator;
 public class ByteNativeBuffer extends AbstractNativeBuffer
 {
     private static final int FRAGMENT_SIZE = 8192;
+    public static final int BYTES_PER_FRAGMENT = FRAGMENT_SIZE * 2;
     private final static float[] LOOKUP_VALUES;
     private float mAverageDc;
 
@@ -58,9 +59,9 @@ public class ByteNativeBuffer extends AbstractNativeBuffer
     {
         super(timestamp, samplesPerMillisecond);
         //Ensure we're an even multiple of the fragment size.  Typically, this will be 64k or 128k
-        if(samples.length % FRAGMENT_SIZE != 0)
+        if(samples.length % BYTES_PER_FRAGMENT != 0)
         {
-            throw new IllegalArgumentException("Samples byte[] length [" + samples.length + "] must be an even multiple of " + FRAGMENT_SIZE);
+            throw new IllegalArgumentException("Samples byte[] length [" + samples.length + "] must be an even multiple of " + BYTES_PER_FRAGMENT);
         }
 
         mSamples = samples;

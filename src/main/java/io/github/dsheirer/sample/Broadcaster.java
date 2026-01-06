@@ -18,6 +18,7 @@
  */
 package io.github.dsheirer.sample;
 
+import io.github.dsheirer.buffer.ReleasableNativeBuffer;
 import io.github.dsheirer.log.LoggingSuppressor;
 import java.util.Collections;
 import java.util.List;
@@ -121,23 +122,41 @@ public class Broadcaster<T> implements Listener<T>
      */
     public void broadcast(T t)
     {
-        for(Listener<T> listener: mListeners)
+        try
         {
-            try
+            for(Listener<T> listener: mListeners)
             {
-                listener.receive(t);
-            }
-            catch(Exception e)
-            {
-                if(t != null)
+                try
                 {
-                    sLoggingSuppressor.error(t.getClass().toGenericString(), 5,
-                    "Error while broadcasting [" + t.getClass() + "] to listeners", e);
+                    listener.receive(t);
                 }
-                else
+                catch(Exception e)
                 {
-                    sLoggingSuppressor.error("null broadcast object", 5, "Can't broadcast null " +
-                            "object to listener [" + listener.getClass() + "]", e);
+                    if(t != null)
+                    {
+                        sLoggingSuppressor.error(t.getClass().toGenericString(), 5,
+                        "Error while broadcasting [" + t.getClass() + "] to listeners", e);
+                    }
+                    else
+                    {
+                        sLoggingSuppressor.error("null broadcast object", 5, "Can't broadcast null " +
+                                "object to listener [" + listener.getClass() + "]", e);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if(t instanceof ReleasableNativeBuffer releasable)
+            {
+                try
+                {
+                    releasable.release();
+                }
+                catch(Exception e)
+                {
+                    sLoggingSuppressor.error(releasable.getClass().toGenericString(), 5,
+                            "Error releasing broadcast object after listener notification", e);
                 }
             }
         }

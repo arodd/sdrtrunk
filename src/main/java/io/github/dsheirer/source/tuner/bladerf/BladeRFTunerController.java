@@ -1123,7 +1123,14 @@ public class BladeRFTunerController extends USBTunerController
 
         if(wasLocked && !isLockedSampleRate() && hasPendingLockedConfiguration() && !mApplyingDeferredConfiguration)
         {
-            applyDeferredConfigurationAfterUnlock();
+            if(isShuttingDown())
+            {
+                clearDeferredConfigurationOnShutdown();
+            }
+            else
+            {
+                applyDeferredConfigurationAfterUnlock();
+            }
         }
     }
 
@@ -1386,6 +1393,25 @@ public class BladeRFTunerController extends USBTunerController
         mPendingBandwidthValue = mConfiguredBandwidth;
     }
 
+    private void clearDeferredLockedConfiguration()
+    {
+        mPendingSampleRate = false;
+        mPendingSampleRateValue = mConfiguredSampleRate;
+        mPendingBandwidth = false;
+        mPendingBandwidthValue = mConfiguredBandwidth;
+        mApplyFullConfigurationAfterUnlock = false;
+    }
+
+    private void clearDeferredConfigurationOnShutdown()
+    {
+        if(mLog.isDebugEnabled() && (hasPendingLockedConfiguration() || mApplyFullConfigurationAfterUnlock))
+        {
+            mLog.debug("bladeRF - discarding deferred configuration while shutting down");
+        }
+
+        clearDeferredLockedConfiguration();
+    }
+
     private boolean hasPendingLockedConfiguration()
     {
         return mPendingSampleRate || mPendingBandwidth;
@@ -1395,6 +1421,12 @@ public class BladeRFTunerController extends USBTunerController
     {
         if(!hasPendingLockedConfiguration() || isLockedSampleRate() || mApplyingDeferredConfiguration)
         {
+            return;
+        }
+
+        if(isShuttingDown())
+        {
+            clearDeferredConfigurationOnShutdown();
             return;
         }
 

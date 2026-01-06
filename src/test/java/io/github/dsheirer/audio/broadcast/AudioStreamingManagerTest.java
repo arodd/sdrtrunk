@@ -38,6 +38,7 @@ import io.github.dsheirer.sample.Listener;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -68,7 +69,7 @@ public class AudioStreamingManagerTest
             latch.countDown();
         };
 
-        UserPreferences userPreferences = new UserPreferences();
+        UserPreferences userPreferences = createTestUserPreferences();
         userPreferences.getCallManagementPreference().setPatchGroupStreamingOption(PatchGroupStreamingOption.PATCH_GROUP);
         AudioStreamingManager manager = new AudioStreamingManager(listener, BroadcastFormat.MP3, userPreferences);
         manager.start();
@@ -103,7 +104,7 @@ public class AudioStreamingManagerTest
             latch.countDown();
         };
 
-        UserPreferences userPreferences = new UserPreferences();
+        UserPreferences userPreferences = createTestUserPreferences();
         userPreferences.getCallManagementPreference().setPatchGroupStreamingOption(PatchGroupStreamingOption.TALKGROUPS);
         AudioStreamingManager manager = new AudioStreamingManager(listener, BroadcastFormat.MP3, userPreferences);
         manager.start();
@@ -124,6 +125,30 @@ public class AudioStreamingManagerTest
 
         assertTrue(success, "Stream patch group audio as INDIVIDUAL TALKGROUPS failed to produce [" +
                 latch.getCount() + "/" + expectedRecordingsCount + "] streaming recordings");
+    }
+
+    /**
+     * Creates a user preferences instance configured to use a project-local, writable streaming directory so tests
+     * don't depend on the user's home directory permissions.
+     */
+    private static UserPreferences createTestUserPreferences()
+    {
+        UserPreferences userPreferences = new UserPreferences();
+
+        //Use a deterministic path in the build directory that Gradle ensures is writable.
+        Path streamingDir = Paths.get("build", "tmp", "streaming-test");
+
+        try
+        {
+            Files.createDirectories(streamingDir);
+        }
+        catch(IOException e)
+        {
+            throw new RuntimeException("Unable to create streaming test directory", e);
+        }
+
+        userPreferences.getDirectoryPreference().setDirectoryStreaming(streamingDir);
+        return userPreferences;
     }
 
     /**

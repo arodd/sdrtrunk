@@ -46,7 +46,7 @@ public class VectorUnpackedSampleConverter implements IAirspySampleConverter
         short[] samples;
         byte b1, b2;
 
-        samples = new short[buffer.capacity() / 2];
+        samples = new short[buffer.remaining() / 2];
 
         int bytesOffset;
         int rawPointer = 0;

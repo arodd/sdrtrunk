@@ -42,7 +42,7 @@ public class ScalarUnpackedSampleConverter implements IAirspySampleConverter
         short[] samples;
         byte b1, b2;
 
-        samples = new short[buffer.capacity() / 2];
+        samples = new short[buffer.remaining() / 2];
 
         if(shouldCalculateDc)
         {

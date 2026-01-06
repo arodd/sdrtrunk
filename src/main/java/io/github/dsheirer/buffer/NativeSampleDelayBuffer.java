@@ -20,6 +20,7 @@ package io.github.dsheirer.buffer;
 
 import io.github.dsheirer.sample.Broadcaster;
 import io.github.dsheirer.sample.Listener;
+import io.github.dsheirer.buffer.ReleasableNativeBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -87,6 +88,7 @@ public class NativeSampleDelayBuffer implements Listener<INativeBuffer>
     {
         for(int x = 0; x < mDelayBuffer.length; x++)
         {
+            releaseIfReleasable(mDelayBuffer[x]);
             mDelayBuffer[x] = null;
         }
 
@@ -116,9 +118,11 @@ public class NativeSampleDelayBuffer implements Listener<INativeBuffer>
             actionRequest = mActionQueue.poll();
         }
 
+        retainIfReleasable(samples);
         mBroadcaster.receive(samples);
 
         //Store the new buffer in the delay queue and increment the pointer
+        releaseIfReleasable(mDelayBuffer[mDelayBufferPointer]);
         mDelayBuffer[mDelayBufferPointer++] = samples;
 
         //Wrap the delay buffer pointer as needed
@@ -244,6 +248,22 @@ public class NativeSampleDelayBuffer implements Listener<INativeBuffer>
         public long getTimestamp()
         {
             return mTimestamp;
+        }
+    }
+
+    private void retainIfReleasable(INativeBuffer buffer)
+    {
+        if(buffer instanceof ReleasableNativeBuffer releasable)
+        {
+            releasable.retain();
+        }
+    }
+
+    private void releaseIfReleasable(INativeBuffer buffer)
+    {
+        if(buffer instanceof ReleasableNativeBuffer releasable)
+        {
+            releasable.release();
         }
     }
 }
